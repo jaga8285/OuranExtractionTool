@@ -1,7 +1,8 @@
 from collections import deque
 from os import listdir
 def extract():
-    files = listdir("C:\\Users\\joaoa\\Desktop\\Ouran")
+    files = listdir()
+    print(files)
     binfiles = []
     for file in files:
         if (file[-4:] == ".bin"):
