@@ -1,15 +1,15 @@
 from collections import deque
 from os import listdir
+from io import BufferedReader
 def extract():
     files = listdir()
-    print(files)
     binfiles = []
     for file in files:
         if (file[-4:] == ".bin"):
             binfiles.append(file)
             
     for file in binfiles:
-        fbin = open(file,"rb")
+        fbin = BufferedReader(open(file,"rb")) #BufferedReader allows peeking ahead without moving the cursor
         ftxt = open(file[:-4]+".txt","w", encoding="shiftjis")
         fbin.read(4) #TODO check if 00000000
         startaddrbin = fbin.read(4)
@@ -19,38 +19,22 @@ def extract():
         print("Start address is {} and Size is {}".format(startaddr,size))
         fbin.read(2) #TODO check if 0000
         fbin.read(20) #???? and a bunch of 0s
-        buffer = deque(fbin.read(4))
-        cursor = 26
+        buffer = deque(fbin.read(4),6) #Bytes are being pushed into a dequeue and iterated along the code. The queue is at most 6 bytes long, whenever a bit is pushed to the right, a byte must be popped from the left.
         pointers_found = 0
-        while cursor < startaddr*2:     
+        while fbin.tell() < startaddr:  #fbin.tell() returns cursor position. pretty neat, iterate pointer table region until you reach actual memory
             buffer.append(fbin.read(1))     
             buffer.append(fbin.read(1))
-            cursor=cursor+2
-            #print("Position:{} Buffer is".format(cursor))
+            #print("Position:{} Buffer is".format(fbin.tell()))
             #print(buffer)
             if (buffer[0] == b'\x04' and buffer[1] == b'\x01' and buffer[4] == b'\x03' and buffer[5] == b'\x01'):
-                scripttype = buffer[3] + buffer[2]
-                cursor=cursor+2  
-                buffer.append(fbin.read(1))     
-                buffer.append(fbin.read(1))     
-                buffer.append(fbin.read(1))     
-                buffer.append(fbin.read(1))
-                bytescount = buffer[7] + buffer[6]
-                cursor=cursor+2
-                offset = buffer[9] + buffer[8]
-                cursor=cursor+2
-                #print("FOUND A POINTER in position {:d}! Type = {}  Size = {}  Offset = {}".format(cursor,scripttype.hex(),bytescount.hex(),offset.hex()))
+                scripttype = buffer[3] + buffer[2] 
+                peekresult = fbin.peek(4) # read 4 bytes ahead without moving the cursor
+                bytescount = peekresult[1:2] + peekresult[0:1] #indexing a byte directly converts it into an int. need to slice it like this.
+                offset = peekresult[3:4] + peekresult[2:3]
+                print("FOUND A POINTER in position {:d}! Type = {}  Size = {}  Offset = {}".format(fbin.tell(),scripttype.hex(),bytescount.hex(),offset.hex()))
                 pointers_found = pointers_found +1
-                buffer.popleft()
-                buffer.popleft()
-                buffer.popleft()
-                buffer.popleft()
             buffer.popleft()
             buffer.popleft()
-        print(scripttype)
-        print(bytescount)
-        print(offset)
-        print(int.from_bytes(scripttype,"big"))
     return pointers_found
     
 print("Found {} pointers".format(extract()))
