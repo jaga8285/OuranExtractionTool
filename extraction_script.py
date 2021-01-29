@@ -1,5 +1,6 @@
 from os import listdir
 from io import BufferedReader
+from pygoogletranslation import Translator
 
 """Important xxxx opcodes
 0x003C = dialog text
@@ -36,9 +37,24 @@ def findPointers(filename):
     fbin.close()
     return (pointers,textaddr)
 
-def genText(pointers,filename,textaddr):
+def genText(pointers,filename,textaddr,translate=False):
     ftxt = open(filename[:-4]+".txt","w", encoding="shiftjis")
     fbin = open(filename,"rb")
+    if translate:
+        translator = Translator()
+        fbin = open(filename,"rb")
+        japanesetext = []
+
+        for pointer in pointers: 
+            try:  
+                CODEDICT[pointer[1]]
+            except KeyError:
+                continue
+            while fbin.tell() < pointer[3]+textaddr:
+                fbin.read(1)
+            pointercontents = fbin.read(pointer[2])
+            japanesetext.append(pointercontents.decode("shiftjis"))
+        translated = translator.translate(japanesetext[0:1],src="ja",dest="en")
     for pointer in pointers: 
         try:
             ftxt.write("Type: {}\n".format(CODEDICT[pointer[1]]))
@@ -49,11 +65,15 @@ def genText(pointers,filename,textaddr):
         ftxt.write("Offset: {:x}\n".format(pointer[3]))
         ftxt.write("Text Position: {:x}\n".format(pointer[3]+textaddr))
         ftxt.write("Pointer Position: {:x}\n".format(pointer[0]))   
-        while fbin.tell() < pointer[3]+textaddr:
-            fbin.read(1)
-        pointercontents = fbin.read(pointer[2])
-        ftxt.write(pointercontents.decode("shiftjis"))
-        ftxt.write("\n\n")
+        if translate:
+            translation = translated.pop[0]
+            ftxt.write("{}\n{}\n".format(translation["origin"],translation["text"]))
+        else:
+            while fbin.tell() < pointer[3]+textaddr:
+                fbin.read(1)
+            pointercontents = fbin.read(pointer[2])
+            ftxt.write(pointercontents.decode("shiftjis"))
+            ftxt.write("\n\n")
     ftxt.close()
     fbin.close()
 
@@ -66,7 +86,7 @@ def convertAllFiles():
     for binfile in binfiles:
         #print("Found {} pointers".format(len(findPointers(binfile))))
         structs = findPointers(binfile) #pointer info and start of text address
-        genText(structs[0], binfile, structs[1])
+        genText(structs[0], binfile, structs[1],True)
     print("Extraction Complete")
 
 convertAllFiles()    
