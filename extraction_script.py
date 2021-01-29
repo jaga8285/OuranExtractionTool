@@ -42,7 +42,6 @@ def genText(pointers,filename,textaddr,translate=False):
     fbin = open(filename,"rb")
     if translate:
         translator = Translator()
-        fbin = open(filename,"rb")
         japanesetext = []
 
         for pointer in pointers: 
