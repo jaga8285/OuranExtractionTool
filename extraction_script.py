@@ -1,6 +1,8 @@
 from os import listdir
 from io import BufferedReader
-from pygoogletranslation import Translator
+from googletrans import Translator
+from shutil import copyfile
+import json
 
 """Important xxxx opcodes
 0x003C = dialog text
@@ -9,12 +11,22 @@ from pygoogletranslation import Translator
 0x0046 = chapter name"""
 
 CODEDICT={b"\x00\x3c":"Dialog",b"\x00\x3e":"Speaker",b"\x00\x39":"Choice",b"\x00\x46":"Chapter name",}
+def int2bytes(num,size = 2):
+    result = bytearray(size)
+    if size >2:
+        lastbytes = num // 0x7fff
+        result[2] = lastbytes % 256
+        result[3] = lastbytes // 256
+    num = num % 0x7fff
+    result[0] = num % 256
+    result[1] = num // 256
+    return result
 def findPointers(filename):
     pointers = []
     fbin = BufferedReader(open(filename,"rb")) #BufferedReader allows peeking ahead without moving the cursor
     fbin.read(4) #TODO check if 00000000
     textaddrbin = fbin.read(4)
-    sizebin = fbin.read(4) #might be 4 bytes
+    sizebin= fbin.read(4) #might be 4 bytes
     fbin.read(8)
     codeaddrbin = fbin.read(4)
     textaddr = int.from_bytes(textaddrbin,"little")
@@ -26,7 +38,7 @@ def findPointers(filename):
         fbin.read(2)
     while fbin.tell() < textaddr:  #fbin.tell() returns cursor position. pretty neat, iterate pointer table region until you reach actual memory
         buffer = (fbin.read(1),fbin.read(1))
-        peekresult = fbin.peek(8) # read 4 bytes ahead without moving the cursor
+        peekresult = fbin.peek(8) # read 8 bytes ahead without moving the cursor
         #cursor = fbin.tell()            
         if (peekresult[0:1] == b'\x03' and peekresult[1:2] == b'\x01'):
             scripttype = buffer[1] + buffer[0] 
@@ -35,45 +47,52 @@ def findPointers(filename):
             #print("FOUND A POINTER in position {:X}! Type = {}  Size = {}  Offset = {}".format(fbin.tell(),scripttype.hex(),bytescount.hex(),offset.hex()))
             pointers.append((fbin.tell(), scripttype, bytescount, offset))
     fbin.close()
-    return (pointers,textaddr)
+    return (pointers,textaddr, codeaddr, size)
 
-def genText(pointers,filename,textaddr,translate=False):
-    ftxt = open(filename[:-4]+".txt","w", encoding="shiftjis")
+def genText(pointers, filename, textaddr, codeaddr, size, translate=False):
+    #ftxt = open(filename[:-4]+".txt","w", encoding="shiftjis")
+    fjson = open(filename[:-4]+".json","w",encoding="shiftjis")
+    contents = []
     fbin = open(filename,"rb")
     if translate:
         translator = Translator()
-        japanesetext = []
-
-        for pointer in pointers: 
-            try:  
-                CODEDICT[pointer[1]]
-            except KeyError:
-                continue
-            while fbin.tell() < pointer[3]+textaddr:
-                fbin.read(1)
-            pointercontents = fbin.read(pointer[2])
-            japanesetext.append(pointercontents.decode("shiftjis"))
-        translated = translator.translate(japanesetext[0:1],src="ja",dest="en")
+        print("Translating {}".format(filename))
+        currentpointer = 0
+        totalpointers = len(pointers)
     for pointer in pointers: 
+        pointerDict = {}
         try:
-            ftxt.write("Type: {}\n".format(CODEDICT[pointer[1]]))
+            pointerDict["Type"] = CODEDICT[pointer[1]]
         except KeyError:
             #ftxt.write("Type: {}\n".format(pointer[1]))  #these are unknown pointer types, enable them if you want
             continue
-        ftxt.write("Size: {}\n".format(pointer[2]))  
-        ftxt.write("Offset: {:x}\n".format(pointer[3]))
-        ftxt.write("Text Position: {:x}\n".format(pointer[3]+textaddr))
-        ftxt.write("Pointer Position: {:x}\n".format(pointer[0]))   
+        pointerDict["Size"]=pointer[2]
+        pointerDict["Offset"]=pointer[3]
+        pointerDict["Text Position"]=pointer[3] + textaddr
+        pointerDict["Pointer Position"]=pointer[0]
+        
+
+        while fbin.tell() < pointer[3]+textaddr:
+            fbin.read(1)
+        pointercontents = fbin.read(pointer[2])
+        decodedtext = pointercontents.decode("shiftjis")
         if translate:
-            translation = translated.pop[0]
-            ftxt.write("{}\n{}\n".format(translation["origin"],translation["text"]))
-        else:
-            while fbin.tell() < pointer[3]+textaddr:
-                fbin.read(1)
-            pointercontents = fbin.read(pointer[2])
-            ftxt.write(pointercontents.decode("shiftjis"))
-            ftxt.write("\n\n")
-    ftxt.close()
+            print("Translating {} of {}. {:.2}%".format(currentpointer,totalpointers,currentpointer/totalpointers*100))
+            #ftxt.write(translator.translate(decodedtext,src="ja",dest="en").text)
+            pointerDict["Translated Text"]=translator.translate(decodedtext,src="ja",dest="en").text
+            currentpointer = currentpointer + 1
+        pointerDict["Original Text"] = decodedtext
+        pointerDict["New Text"] = ""   
+        #ftxt.write("\n\n")
+        contents.append(pointerDict)
+    payload = {
+        "Code Address":codeaddr,
+        "Text Address":textaddr,
+        "Text Block Size":size,
+        "pointers":contents
+    }
+    json.dump(payload,fjson,ensure_ascii=False,indent=4)
+    fjson.close()
     fbin.close()
 
 def convertAllFiles():
@@ -85,10 +104,53 @@ def convertAllFiles():
     for binfile in binfiles:
         #print("Found {} pointers".format(len(findPointers(binfile))))
         structs = findPointers(binfile) #pointer info and start of text address
-        genText(structs[0], binfile, structs[1],True)
+        genText(structs[0], binfile, structs[1], structs[2], structs[3], False)
     print("Extraction Complete")
 
-convertAllFiles()    
+def insertNewText(jsonfilename):
+    with open(jsonfilename,"r", encoding="shiftjis") as f:
+        contents = json.load(f)
+    binfile = jsonfilename[:-5]+".bin"
+    copyfile(binfile, binfile+"~")
+    endaddr = contents.get("Text Block Size") + contents.get("Text Address")
+    fbintil = open(binfile+"~", "ab")
+    total_offset = 0
+    for pointer in contents.get("pointers"):
+        newtext = pointer.get("New Text")
+        newtextbin = bytearray(newtext, "shiftjis")
+        newsize = len(newtextbin)
+        total_offset += newsize
+        fbintil.seek(endaddr + total_offset)
+        fbintil.write(newtextbin)
+        pointer["Size"] = newsize
+        pointer["Text Position"] = endaddr + total_offset
+        pointer["Offset"] = pointer["Text Position"] - contents.get("Text Address")
+    contents["Text Block Size"] += total_offset
+    fbintil.close()
+    with open(binfile + "~", 'rb+') as fbintil:
+        fbintil.seek(8)
+        fbintil.write(int2bytes(contents["Text Block Size"]))
+    with open(jsonfilename, "w",encoding="shiftjis") as f:
+        json.dump(contents, f, ensure_ascii=False, indent = 4)
+    return
+
+def updatePointers(jsonfilename):
+    with open(jsonfilename, "r",encoding="shiftjis") as json_file:
+        contents = json.load(json_file)
+    binfilename = jsonfilename[:-5]+".bin"
+    fbin = open(binfilename,"rb+")
+    for pointer in contents["pointers"]:
+        fbin.seek(pointer["Pointer Position"])
+        assert fbin.read(2) == b'\x03\x01'
+        fbin.write(int2bytes(pointer["Size"]))
+        fbin.write(int2bytes(pointer["Offset"],4))
+    return
+            
+
+
+#convertAllFiles()
+insertNewText("500_ev1010.json")
+updatePointers("500_ev1010.json")  
 
     
         
