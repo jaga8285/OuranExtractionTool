@@ -10,7 +10,7 @@ import json
 0x0039 = choice
 0x0046 = chapter name"""
 
-CODEDICT={b"\x00\x3c":"Dialog",b"\x00\x3e":"Speaker",b"\x00\x39":"Choice",b"\x00\x46":"Chapter name",}
+CODEDICT={b"\x00\x3c":"Dialog",b"\x00\x3e":"Speaker",b"\x00\x39":"Choice",b"\x00\x46":"Chapter name",b"\x01\x04":"INVALID",}
 def int2bytes(num,size = 2):
     result = bytearray(size)
     if size >2:
@@ -62,10 +62,12 @@ def genText(pointers, filename, textaddr, codeaddr, size, translate=False):
     for pointer in pointers: 
         pointerDict = {}
         try:
+            if CODEDICT[pointer[1]] == "INVALID":
+                continue
             pointerDict["Type"] = CODEDICT[pointer[1]]
         except KeyError:
-            #ftxt.write("Type: {}\n".format(pointer[1]))  #these are unknown pointer types, enable them if you want
-            continue
+            pointerDict["Type"] = int.from_bytes(pointer[1],"little")
+            #continue
         pointerDict["Size"]=pointer[2]
         pointerDict["Offset"]=pointer[3]
         pointerDict["Text Position"]=pointer[3] + textaddr
@@ -88,7 +90,7 @@ def genText(pointers, filename, textaddr, codeaddr, size, translate=False):
     payload = {
         "Code Address":codeaddr,
         "Text Address":textaddr,
-        "Text Block Size":size,
+        "Original Text Block Size":size,
         "pointers":contents
     }
     json.dump(payload,fjson,ensure_ascii=False,indent=4)
@@ -112,24 +114,24 @@ def insertNewText(jsonfilename):
         contents = json.load(f)
     binfile = jsonfilename[:-5]+".bin"
     copyfile(binfile, binfile+"~")
-    endaddr = contents.get("Text Block Size") + contents.get("Text Address")
+    endaddr = contents.get("Original Text Block Size") + contents.get("Text Address")
     fbintil = open(binfile+"~", "ab")
     total_offset = 0
     for pointer in contents.get("pointers"):
         newtext = pointer.get("New Text")
         newtextbin = bytearray(newtext, "shiftjis")
         newsize = len(newtextbin)
-        total_offset += newsize
         fbintil.seek(endaddr + total_offset)
         fbintil.write(newtextbin)
         pointer["Size"] = newsize
         pointer["Text Position"] = endaddr + total_offset
         pointer["Offset"] = pointer["Text Position"] - contents.get("Text Address")
-    contents["Text Block Size"] += total_offset
+        total_offset += newsize
+    contents["New Text Block Size"] = contents["Original Text Block Size"] + total_offset
     fbintil.close()
     with open(binfile + "~", 'rb+') as fbintil:
         fbintil.seek(8)
-        fbintil.write(int2bytes(contents["Text Block Size"]))
+        fbintil.write(int2bytes(contents["New Text Block Size"]))
     with open(jsonfilename, "w",encoding="shiftjis") as f:
         json.dump(contents, f, ensure_ascii=False, indent = 4)
     return
@@ -138,19 +140,34 @@ def updatePointers(jsonfilename):
     with open(jsonfilename, "r",encoding="shiftjis") as json_file:
         contents = json.load(json_file)
     binfilename = jsonfilename[:-5]+".bin"
-    fbin = open(binfilename,"rb+")
+    fbintil = open(binfilename+"~","rb+")
     for pointer in contents["pointers"]:
-        fbin.seek(pointer["Pointer Position"])
-        assert fbin.read(2) == b'\x03\x01'
-        fbin.write(int2bytes(pointer["Size"]))
-        fbin.write(int2bytes(pointer["Offset"],4))
+        fbintil.seek(pointer["Pointer Position"])
+        assert fbintil.read(2) == b'\x03\x01'
+        fbintil.write(int2bytes(pointer["Size"]))
+        fbintil.write(int2bytes(pointer["Offset"],4))
     return
-            
 
+def validatejson(jsonfilename):
+    with open(jsonfilename, "r",encoding="shiftjis") as json_file:
+        contents = json.load(json_file)
+    offset = 0
+    for pointer in contents["pointers"]:
+        try:
+            assert offset == pointer["Offset"]
+        except:
+            print("Validation filtered a Pointer in position {}".format(pointer["Pointer Position"]))
+            del pointer
+            continue
+        offset = offset + pointer["Size"]
+    with open(jsonfilename, "w",encoding="shiftjis") as f:
+        json.dump(contents, f, ensure_ascii=False, indent = 4)
+    print("Json Validated!")
 
-#convertAllFiles()
-insertNewText("500_ev1010.json")
-updatePointers("500_ev1010.json")  
+convertAllFiles()
+#insertNewText("101_1_1.json")
+#updatePointers("101_1_1.json")  
+validatejson("101_1_1.json")
 
     
         

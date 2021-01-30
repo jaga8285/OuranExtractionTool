@@ -1,0 +1,77 @@
+Type: Speaker
+Size: 2
+Offset: a
+Text Position: 260
+Pointer Position: 120
+ring
+
+Type: Dialog
+Size: 16
+Offset: c
+Text Position: 262
+Pointer Position: 12c
+“………… Hmm”
+
+Type: Speaker
+Size: 6
+Offset: 1c
+Text Position: 272
+Pointer Position: 14c
+Haruhi
+
+Type: Dialog
+Size: 16
+Offset: 22
+Text Position: 278
+Pointer Position: 158
+"Tamaki-senpai?"
+
+Type: Dialog
+Size: 42
+Offset: 32
+Text Position: 288
+Pointer Position: 168
+Tamaki Suoh gently puts his lips on his fingertips
+
+Type: Dialog
+Size: 8
+Offset: 5c
+Text Position: 2b2
+Pointer Position: 174
+ing.
+
+Type: Speaker
+Size: 6
+Offset: 64
+Text Position: 2ba
+Pointer Position: 194
+Haruhi
+
+Type: Dialog
+Size: 42
+Offset: 6a
+Text Position: 2c0
+Pointer Position: 1a0
+"That ... it's a first aid when bitten by a snake.
+
+Type: Dialog
+Size: 12
+Offset: 94
+Text Position: 2ea
+Pointer Position: 1ac
+It's a treatment. "
+
+Type: Speaker
+Size: 2
+Offset: a6
+Text Position: 2fc
+Pointer Position: 204
+ring
+
+Type: Dialog
+Size: 12
+Offset: a8
+Text Position: 2fe
+Pointer Position: 210
+"……What?"
+
