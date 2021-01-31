@@ -112,7 +112,7 @@ def extractAllFiles():
     for idx, f in enumerate(foundfiles):
         findPointers(f) #pointer info and start of text address
         validatejson(f)
-        readPointers(f, True)
+        readPointers(f, False)
         print("File {} of {} extracted".format(idx+1, len(foundfiles))) 
     print("Extraction Complete")
 
@@ -202,7 +202,7 @@ def main():
         f = input("Filename:")
         findPointers(f)
         validatejson(f)
-        readPointers(f, True)
+        readPointers(f, False)
         return 1
     elif choice == "p":
         f = input("Filename:")
