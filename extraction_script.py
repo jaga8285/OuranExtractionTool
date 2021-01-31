@@ -1,7 +1,6 @@
 from os import listdir
 from io import BufferedReader
-#from googletrans import Translator
-from shutil import copyfile
+from googletrans import Translator
 import json
 
 """Important xxxx opcodes
@@ -9,6 +8,7 @@ import json
 0x003E = speaker name
 0x0039 = choice
 0x0046 = chapter name"""
+
 
 CODEDICT={b"\x00\x3c":"Dialog",b"\x00\x3e":"Speaker",b"\x00\x39":"Choice",b"\x00\x46":"Chapter name",b"\x01\x04":"INVALID",}
 def int2bytes(num,size = 2):
@@ -22,10 +22,15 @@ def int2bytes(num,size = 2):
     result[1] = num // 256
     return result
 
+def copyfile(f1, f2):
+    fp1 = open(f1, "rb")
+    fp2 = open(f2, "wb")
+    fp2.write(fp1.read())
+
 
 def findPointers(filename):
     pointers = []
-    fbin = BufferedReader(open(filename+".bin","rb")) #BufferedReader allows peeking ahead without moving the cursor
+    fbin = open(filename+".bin","rb")
     fbin.read(4) #TODO check if 00000000
     textaddrbin = fbin.read(4)
     sizebin= fbin.read(4) #might be 4 bytes
@@ -34,13 +39,14 @@ def findPointers(filename):
     textaddr = int.from_bytes(textaddrbin,"little")
     codeaddr = int.from_bytes(codeaddrbin,"little")
     size = int.from_bytes(sizebin,"little")
-    print("Start Text address is \\x{:x}, Start Code address is \\x{:x} and Size is {}".format(textaddr,codeaddr,size))
+    #print("Start Text address is \\x{:x}, Start Code address is \\x{:x} and Size is {}".format(textaddr,codeaddr,size))
 
     while fbin.tell() < codeaddr:
         fbin.read(2)
     while fbin.tell() < textaddr:  #fbin.tell() returns cursor position. pretty neat, iterate pointer table region until you reach actual memory
         buffer = (fbin.read(1),fbin.read(1))
-        peekresult = fbin.peek(8) # read 8 bytes ahead without moving the cursor
+        peekresult = fbin.read(8) # read 8 bytes ahead without moving the cursor
+        fbin.seek(-8, 1)
         #cursor = fbin.tell()            
         if (peekresult[0:1] == b'\x03' and peekresult[1:2] == b'\x01'):
             scripttype = buffer[1] + buffer[0] 
@@ -72,7 +78,6 @@ def findPointers(filename):
     fjson.close()
 
 def readPointers(filename,translate=False):
-    #ftxt = open(filename+".txt","w", encoding="shiftjis")
     with open(filename+".json","r", encoding="shiftjis") as f:
         contents = json.load(f)
     fbin = open(filename+".bin","rb")
@@ -80,7 +85,7 @@ def readPointers(filename,translate=False):
         translator = Translator()
         print("Translating {}".format(filename))
         currentpointer = 0
-        totalpointers = len(pointers)
+        totalpointers = len(contents["pointers"]) #used for loading screen
     for pointer in contents["pointers"]: 
         #if (pointer["Type"] not in CODEDICT.values()):
             #continue
@@ -93,51 +98,23 @@ def readPointers(filename,translate=False):
             currentpointer = currentpointer + 1
         pointer["Original Text"] = decodedtext
         pointer["New Text"] = ""   
-        #contents["pointers"].append(pointer)
     fjson = open(filename+".json","w",encoding="shiftjis")
     json.dump(contents,fjson,ensure_ascii=False,indent=4)
     fjson.close()
     fbin.close()
 
-def convertAllFiles():
+def extractAllFiles():
     files = listdir()
     foundfiles = []
     for f in files:
         if (f[-4:] == ".bin"):
             foundfiles.append(f[:-4])
-    for f in foundfiles:
-        #print("Found {} pointers".format(len(findPointers(binfile))))
+    for idx, f in enumerate(foundfiles):
         findPointers(f) #pointer info and start of text address
         validatejson(f)
-        readPointers(f, False)
+        readPointers(f, True)
+        print("File {} of {} extracted".format(idx+1, len(foundfiles))) 
     print("Extraction Complete")
-
-#def insertNewText(jsonfilename):
-#    with open(jsonfilename,"r", encoding="shiftjis") as f:
-#        contents = json.load(f)
-#    binfile = jsonfilename[:-5]+".bin"
-#    copyfile(binfile, binfile+"~")
-#    endaddr = contents.get("Original Text Block Size") + contents.get("Text Address")
-#    fbintil = open(binfile+"~", "ab")
-#    total_offset = 0
-#    for pointer in contents.get("pointers"):
-#        newtext = pointer.get("New Text")
-#        newtextbin = bytearray(newtext, "shiftjis")
-#        newsize = len(newtextbin)
-#        fbintil.seek(endaddr + total_offset)
-#        fbintil.write(newtextbin)
-#        pointer["Size"] = newsize
-#        pointer["Text Position"] = endaddr + total_offset
-#        pointer["Offset"] = pointer["Text Position"] - contents.get("Text Address")
-#        total_offset += newsize
-#    contents["New Text Block Size"] = contents["Original Text Block Size"] + total_offset
-#    fbintil.close()
-#    with open(binfile + "~", 'rb+') as fbintil:
-#        fbintil.seek(8)
-#        fbintil.write(int2bytes(contents["New Text Block Size"]))
-#    with open(jsonfilename, "w",encoding="shiftjis") as f:
-#        json.dump(contents, f, ensure_ascii=False, indent = 4)
-#    return
 
 def alterText(filename):
     with open(filename + ".json","r", encoding="shiftjis") as f:
@@ -154,7 +131,6 @@ def alterText(filename):
             newtext = pointer["Original Text"]
         newtextbin = bytearray(newtext, "shiftjis")
         newsize = len(newtextbin)
-        #fbintil.seek(contents["Text Address"] + total_offset)
         fbintil.write(newtextbin)
         pointer["Size"] =  newsize
         pointer["Offset"] = total_offset + previous_size
@@ -170,15 +146,13 @@ def alterText(filename):
         json.dump(contents, f, ensure_ascii=False, indent = 4)
     return
 
-
 def updatePointers(filename):
     with open(filename+".json", "r",encoding="shiftjis") as json_file:
         contents = json.load(json_file)
     fbintil = open(filename + ".bin" + "~","rb+")
     for pointer in contents["pointers"]:
         fbintil.seek(pointer["Pointer Position"])
-        temp = fbintil.read(2)
-        #assert temp == b'\x03\x01'
+        assert fbintil.read(2) == b'\x03\x01'
         fbintil.write(int2bytes(pointer["Size"]))
         fbintil.write(int2bytes(pointer["Offset"],4))
     return
@@ -201,10 +175,40 @@ def validatejson(filename):
         json.dump(contents, f, ensure_ascii=False, indent = 4)
     print("Json Validated!")
 
-convertAllFiles()
-input()
-alterText("101_1_1")
-updatePointers("101_1_1")  
+def insertAllFiles():
+    files = listdir()
+    foundfiles = []
+    for f in files:
+        if (f[-4:] == ".bin"):
+            foundfiles.append(f[:-4])
+    for idx, f in enumerate(foundfiles):
+        alterText(f)
+        updatePointers(f) 
+        print("File {} of {} patched".format(idx+1, len(foundfiles))) 
+    print("Patching Complete")
 
-    
-        
+
+def main():
+    choice = ""
+    while choice != "ea" and choice != "pa" and choice != "e" and choice != "p":
+        choice = input("Extract all/Patch all/Extract one/Patch one (ea/pa/e/p)")
+    if choice == "ea":
+        extractAllFiles()
+        return 1
+    elif choice == "pa":
+        insertAllFiles()
+        return 1
+    elif choice == "e":
+        f = input("Filename:")
+        findPointers(f)
+        validatejson(f)
+        readPointers(f, True)
+        return 1
+    elif choice == "p":
+        f = input("Filename:")
+        alterText(f)
+        updatePointers(f) 
+        return 1
+    return 0
+
+main()     
